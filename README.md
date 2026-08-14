@@ -47,6 +47,40 @@ Orchestrated hourly by Apache Airflow.
 
 Python · AWS S3 · Snowflake (Dynamic Tables, Tasks) · Groq (LLM) · Apache Airflow · Tableau
 
+## Proof it works
+
+On Day 6, a deliberately invalid row (delinquency_rate = 500, impossible for a percentage) was injected into RAW.delinquency to test the quality gate. It stayed in place for several days while the pipeline ran autonomously every hour, a real, sustained test rather than a one off catch.
+
+### The bad data, confirmed at the source
+
+![Query confirming the invalid test row in RAW.delinquency](raw-bad-row-evidence.png)
+
+A delinquency rate of 500 is impossible (it is a percentage, bounded 0 to 100), confirming this was a genuine invalid value sitting in the raw layer, not a display artifact.
+
+### Before: the gate catching the same bad data, every hour, for days
+
+![Data Health dashboard showing repeated FAIL results](data-health-before.png)
+
+The FAIL bar spans the entire visible timeline (Aug 10 to 14). This is proof it wasn't a single lucky catch, but the deterministic range_check correctly flagging the same invalid row on every scheduled run, hour after hour, with zero manual intervention.
+
+### The cleanup, and confirming it actually took
+
+![SQL query confirming the bad row was removed](cleanup-verification.png)
+
+After removing the bad row from RAW and forcing the Dynamic Tables to refresh, this query checking MART.credit_health_metrics for the invalid value returns zero rows, confirming the fix propagated all the way through the pipeline.
+
+### After: the very next check passes
+
+![Quality log showing a PASS immediately following a run of FAILs](quality-log-pass-after-fail.png)
+
+The same range_check that failed consistently for days logs a clean PASS the moment the underlying data is fixed. No code change, no redeploy, just the existing deterministic logic correctly reflecting the new state of the data.
+
+### After: the dashboard reflects it
+
+![Data Health dashboard after cleanup, showing the FAIL history plus a new PASS](data-health-after.png)
+
+The historical FAIL count is preserved, since an audit log should never silently erase what actually happened, while a new PASS appears at the end of the timeline representing the pipeline's current, healthy state.
+
 ## Known limitations
 
 - The range check currently re-flags the same underlying bad row on every scheduled run it's still present, rather than only once — a production version would deduplicate by row rather than by check execution.
@@ -62,37 +96,3 @@ pip install -r requirements.txt
 ```
 
 Configure AWS CLI (`aws configure`) and set Snowflake/Groq credentials in a `.env` file before running `ingest.py`, `upload.py`, or `investigate.py`.
-
-## Proof it works
-
-On Day 6, a deliberately invalid row (delinquency_rate = 500, impossible for a percentage) was injected into RAW.delinquency to test the quality gate. It stayed in place for several days while the pipeline ran autonomously every hour, a real, sustained test rather than a one off catch.
-
-### The bad data, confirmed at the source
-
-![Query confirming the invalid test row in RAW.delinquency](screenshots/raw-bad-row-evidence.png)
-
-A delinquency rate of 500 is impossible (it is a percentage, bounded 0 to 100), confirming this was a genuine invalid value sitting in the raw layer, not a display artifact.
-
-### Before: the gate catching the same bad data, every hour, for days
-
-![Data Health dashboard showing repeated FAIL results](screenshots/data-health-before.png)
-
-The FAIL bar spans the entire visible timeline (Aug 10 to 14). This is proof it wasn't a single lucky catch, but the deterministic range_check correctly flagging the same invalid row on every scheduled run, hour after hour, with zero manual intervention.
-
-### The cleanup, and confirming it actually took
-
-![SQL query confirming the bad row was removed](screenshots/cleanup-verification.png)
-
-After removing the bad row from RAW and forcing the Dynamic Tables to refresh, this query checking MART.credit_health_metrics for the invalid value returns zero rows, confirming the fix propagated all the way through the pipeline.
-
-### After: the very next check passes
-
-![Quality log showing a PASS immediately following a run of FAILs](screenshots/quality-log-pass-after-fail.png)
-
-The same range_check that failed consistently for days logs a clean PASS the moment the underlying data is fixed. No code change, no redeploy, just the existing deterministic logic correctly reflecting the new state of the data.
-
-### After: the dashboard reflects it
-
-![Data Health dashboard after cleanup, showing the FAIL history plus a new PASS](screenshots/data-health-after.png)
-
-The historical FAIL count is preserved, since an audit log should never silently erase what actually happened, while a new PASS appears at the end of the timeline representing the pipeline's current, healthy state.
