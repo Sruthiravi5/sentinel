@@ -19,3 +19,46 @@ A financial data pipeline that ingests real credit delinquency data, transforms 
 
 ## Architecture
 
+~~~
+FRED API → S3 (raw, versioned)
+         → Snowflake RAW (exact copy)
+         → Snowflake CLEAN (Dynamic Table, typed + validated)
+         → Snowflake MART (Dynamic Table, business metrics)
+              ├─→ credit_health_clean (view, dashboard-safe)
+              └─→ quarantine (failed rows + reason)
+                        ↓
+              quality_log (audit trail, every check run)
+                        ↓
+              incident_log (LLM root-cause narrative)
+                        ↓
+              Tableau (live dashboard)
+
+Orchestrated hourly by Apache Airflow.
+~~~
+
+## Why this design
+
+- **RAW/CLEAN/MART separation** gives a provable lineage trail — every number on the dashboard can be traced back to its raw source file and load timestamp.
+- **Dynamic Tables are read-only** by design, so the pipeline can't simply delete bad rows from the transformed layer. Instead, a `quarantine` table holds failed rows, and a `credit_health_clean` *view* excludes anything in quarantine — the autonomous data layer stays untouched, and a separate "safe to show" layer enforces trust.
+- **The LLM never decides pass/fail.** All checks are deterministic SQL. The agent is invoked only after a check has already failed, and its only job is to explain the failure in plain English using recent data as context.
+- **Airflow orchestrates cross-system steps** (Snowflake SQL → external Python/LLM API) that Snowflake's own Task scheduler can't chain natively.
+
+## Stack
+
+Python · AWS S3 · Snowflake (Dynamic Tables, Tasks) · Groq (LLM) · Apache Airflow · Tableau
+
+## Known limitations
+
+- The range check currently re-flags the same underlying bad row on every scheduled run it's still present, rather than only once — a production version would deduplicate by row rather than by check execution.
+- Cortex (Snowflake's native LLM function) was the original plan but is restricted on trial accounts without a payment method; the agent runs via an external LLM API (Groq) instead, called from Python and orchestrated by Airflow.
+- Tableau's dashboard reflects a snapshot at last refresh, not a live stream — the *pipeline* is autonomous and self-healing; the dashboard is a window into it that updates when refreshed, same as most BI tools.
+
+## Setup
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Configure AWS CLI (`aws configure`) and set Snowflake/Groq credentials in a `.env` file before running `ingest.py`, `upload.py`, or `investigate.py`.
