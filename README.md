@@ -42,6 +42,7 @@ Orchestrated hourly by Apache Airflow.
 - **Dynamic Tables are read-only** by design, so the pipeline can't simply delete bad rows from the transformed layer. Instead, a `quarantine` table holds failed rows, and a `credit_health_clean` *view* excludes anything in quarantine — the autonomous data layer stays untouched, and a separate "safe to show" layer enforces trust.
 - **The LLM never decides pass/fail.** All checks are deterministic SQL. The agent is invoked only after a check has already failed, and its only job is to explain the failure in plain English using recent data as context.
 - **Airflow orchestrates cross-system steps** (Snowflake SQL → external Python/LLM API) that Snowflake's own Task scheduler can't chain natively.
+- **Every check and schema comment doubles as data governance** — `quality_log` is a permanent audit trail of every check ever run, and table/column comments (via `COMMENT ON`) keep the data dictionary living inside the schema itself rather than in a separate doc that goes stale.
 
 ## Stack
 
