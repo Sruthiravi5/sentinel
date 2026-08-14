@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+raw/
+airflow/logs/
+airflow/airflow.db
+airflow/simple_auth_manager_passwords.json.generated
+airflow/airflow.cfg
+airflow/webserver_config.py
